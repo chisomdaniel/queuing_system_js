@@ -39,8 +39,11 @@ const client = createClient();
 client.on('error', (err) => console.log('Error connecting to Redis:', err));
 client.on('connect', () => console.log('Connected to Redis'));
 
-async function reserveStockById(itemId, stock) {
+(async () => {
     await client.connect();
+})();
+
+async function reserveStockById(itemId, stock) {
     await client.set(`item.${itemId}`, stock);
 }
 
@@ -48,18 +51,55 @@ async function getCurrentReservedStockById(itemId) {
     return await client.get(`item.${itemId}`);
 }
 
+// reserveStockById(2, 3);
+// getCurrentReservedStockById(2).then((value) => {
+//     console.log('value is ', value);
+// });
+
 app.get('/list_products', (req, res) => {
-    res.send(JSON.stringify(listProducts));
+    const newList = listProducts.map((obj) => {
+        return {
+            itemId: obj.id,
+            itemName: obj.name,
+            price: obj.price,
+            initialAvailableQuantity: obj.stock
+        }
+    })
+    res.send(JSON.stringify(newList));
 })
 
-app.get('/list_products/:itemId', (req, res) => {
-    const {itemId} = req.params;
-    let item = getItemById(itemId);
+app.get('/list_products/:itemId', async (req, res) => {
+    const { itemId } = req.params;
+    let item = getItemById(Number(itemId));
     if (item === undefined) {
         res.send(JSON.stringify({'status': 'Product not found'}))
     }
-    item.currentQuantity = getCurrentReservedStockById(itemId);
+    item = {
+        itemId: item.id,
+        itemName: item.name,
+        price: item.price,
+        initialAvailableQuantity: item.stock,
+        currentQuantity: await getCurrentReservedStockById(itemId)
+    }
+    // getCurrentReservedStockById(itemId).then((value) => {
+    //     item.currentQuantity = value;
+    //     res.send(JSON.stringify(item));
+    // })
     res.send(JSON.stringify(item))
+})
+
+app.get('/reserve_product/:itemId', async (req, res) => {
+    const { itemId } = req.params;
+    let item = getItemById(Number(itemId));
+    if (item === undefined) {
+        res.send(JSON.stringify({'status': 'Product not found'}))
+    }
+    if (item && item.stock < 1) {
+        res.send(JSON.stringify({'status': 'Not enough stock available', 'itemId': itemId}));
+    } else {
+        await reserveStockById(itemId, 1);
+        res.send(JSON.stringify({'status': 'Reservation confirmed','itemId': itemId}));
+    }
 })
 
 app.listen(port, () => console.log('Listening...'));
